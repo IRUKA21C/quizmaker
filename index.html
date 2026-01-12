@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 퀴즈 생성기</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- JSZip for PPTX parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- PDF.js for PDF parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    </script>
+
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/webfontworld/gmarket/GmarketSans.css');
+
+        body {
+            font-family: 'GmarketSans', sans-serif;
+            background-color: #ffffff;
+        }
+
+        .quiz-card {
+            background-color: #f8f9fa;
+            transition: all 0.3s ease;
+        }
+
+        .quiz-card:hover {
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c1c1c1; 
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8; 
+        }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col md:flex-row overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-full md:w-80 bg-gray-50 border-r border-gray-200 p-6 flex flex-col h-auto md:h-full overflow-y-auto z-10 shadow-md md:shadow-none">
+        <div class="mb-8">
+            <h1 class="text-2xl font-bold text-blue-600 mb-2">📝 AI 퀴즈 생성기</h1>
+            <p class="text-sm text-gray-500">수업 자료를 업로드하면 Gemini가 퀴즈를 만들어줍니다.</p>
+        </div>
+
+        <div class="space-y-6">
+            <!-- API Key Input -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
+                <input type="password" id="apiKey" placeholder="API 키를 입력하세요" 
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all">
+                <p class="text-xs text-gray-400 mt-1">* 브라우저에만 저장되며 서버로 전송되지 않습니다.</p>
+            </div>
+
+            <hr class="border-gray-200">
+
+            <!-- File Upload -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">학습 자료 업로드</label>
+                <div class="relative border-2 border-dashed border-gray-300 rounded-lg p-6 hover:bg-gray-100 transition-colors text-center cursor-pointer" onclick="document.getElementById('fileInput').click()">
+                    <input type="file" id="fileInput" accept=".pdf,.pptx,.txt" class="hidden" onchange="handleFileSelect(event)">
+                    <div id="fileLabel">
+                        <span class="text-2xl block mb-2">📂</span>
+                        <span class="text-sm text-gray-500">클릭하여 파일 선택<br>(PDF, PPTX, TXT)</span>
+                    </div>
+                </div>
+                <p id="fileNameDisplay" class="text-sm text-blue-600 mt-2 font-medium hidden truncate"></p>
+            </div>
+
+            <!-- Generate Button -->
+            <button id="generateBtn" onclick="startGeneration()" disabled
+                class="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors shadow-sm flex justify-center items-center gap-2">
+                🚀 퀴즈 생성하기
+            </button>
+
+             <!-- CSV Download Button (Hidden initially) -->
+             <button id="downloadBtn" onclick="downloadCSV()" class="hidden w-full bg-green-600 text-white py-3 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex justify-center items-center gap-2 mt-4">
+                💾 CSV 다운로드
+            </button>
+        </div>
+
+        <div class="mt-auto pt-6 text-xs text-gray-400 text-center">
+            Made with HTML5 & Gemini
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 bg-white p-4 md:p-8 overflow-y-auto h-full relative">
+        
+        <!-- Welcome Message / Empty State -->
+        <div id="emptyState" class="h-full flex flex-col items-center justify-center text-gray-400">
+            <div class="text-6xl mb-4">👋</div>
+            <p class="text-lg">좌측 사이드바에서 API 키를 입력하고<br>파일을 업로드하여 퀴즈를 생성해보세요.</p>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loadingIndicator" class="hidden absolute inset-0 bg-white/80 z-20 flex flex-col items-center justify-center">
+            <div class="loader mb-4"></div>
+            <p class="text-lg font-bold text-gray-700" id="loadingText">파일 분석 중...</p>
+        </div>
+
+        <!-- Quiz Container -->
+        <div id="quizContainer" class="max-w-4xl mx-auto space-y-6 pb-20 hidden">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-2xl font-bold text-gray-800">🧩 생성된 퀴즈</h2>
+                <span id="quizCountBadge" class="bg-blue-100 text-blue-800 text-sm font-medium px-3 py-1 rounded-full">0 문제</span>
+            </div>
+            
+            <div id="quizList" class="space-y-6">
+                <!-- Quizzes will be injected here -->
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Scripts -->
+    <script>
+        // State
+        let currentFile = null;
+        let extractedText = "";
+        let quizzes = [];
+
+        // UI Helpers
+        const getEl = (id) => document.getElementById(id);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            currentFile = file;
+            getEl('fileNameDisplay').textContent = `선택됨: ${file.name}`;
+            getEl('fileNameDisplay').classList.remove('hidden');
+            getEl('fileLabel').innerHTML = '<span class="text-green-500 font-bold">✓ 파일 준비 완료</span>';
+            
+            checkReady();
+        }
+
+        getEl('apiKey').addEventListener('input', checkReady);
+
+        function checkReady() {
+            const apiKey = getEl('apiKey').value.trim();
+            const btn = getEl('generateBtn');
+            btn.disabled = !(apiKey && currentFile);
+        }
+
+        // ----------------------------------------------------------------
+        // Text Extraction Logic
+        // ----------------------------------------------------------------
+        async function extractText() {
+            if (!currentFile) return null;
+
+            const fileType = currentFile.name.split('.').pop().toLowerCase();
+            
+            try {
+                if (fileType === 'txt') {
+                    return await currentFile.text();
+                } else if (fileType === 'pdf') {
+                    return await extractPdf(currentFile);
+                } else if (fileType === 'pptx') {
+                    return await extractPptx(currentFile);
+                } else {
+                    alert('지원하지 않는 파일 형식입니다. (pdf, pptx, txt 지원)');
+                    return null;
+                }
+            } catch (error) {
+                console.error(error);
+                alert(`텍스트 추출 실패: ${error.message}`);
+                return null;
+            }
+        }
+
+        async function extractPdf(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            let fullText = "";
+
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                fullText += pageText + "\n";
+            }
+            return fullText;
+        }
+
+        async function extractPptx(file) {
+            const zip = await JSZip.loadAsync(file);
+            let fullText = "";
+            
+            // PPTX stores slides in ppt/slides/slide*.xml
+            const slideFiles = Object.keys(zip.files).filter(name => 
+                name.startsWith('ppt/slides/slide') && name.endsWith('.xml')
+            );
+            
+            // Sort to ensure order (slide1, slide2...)
+            slideFiles.sort((a, b) => {
+                const numA = parseInt(a.match(/slide(\d+)\.xml/)[1]);
+                const numB = parseInt(b.match(/slide(\d+)\.xml/)[1]);
+                return numA - numB;
+            });
+
+            for (const filename of slideFiles) {
+                const content = await zip.file(filename).async("string");
+                // Remove XML tags to get text (simple regex approach)
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(content, "text/xml");
+                const textNodes = xmlDoc.getElementsByTagName("a:t");
+                
+                let slideText = "";
+                for(let i=0; i<textNodes.length; i++) {
+                    slideText += textNodes[i].textContent + " ";
+                }
+                fullText += slideText + "\n";
+            }
+            return fullText;
+        }
+
+        // ----------------------------------------------------------------
+        // Gemini API Logic
+        // ----------------------------------------------------------------
+        async function callGemini(prompt, isJsonArray = true) {
+            const apiKey = getEl('apiKey').value.trim();
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+            const requestBody = {
+                contents: [{
+                    parts: [{ text: prompt }]
+                }]
+            };
+
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+
+            if (!response.ok) {
+                throw new Error(`API 오류: ${response.status} ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            const text = data.candidates[0].content.parts[0].text;
+            
+            // Cleanup JSON string
+            let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+            
+            try {
+                return JSON.parse(cleanText);
+            } catch (e) {
+                console.error("JSON 파싱 실패", cleanText);
+                throw new Error("AI 응답을 JSON으로 변환할 수 없습니다.");
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // Application Logic
+        // ----------------------------------------------------------------
+        async function startGeneration() {
+            const loading = getEl('loadingIndicator');
+            const loadingText = getEl('loadingText');
+            
+            loading.classList.remove('hidden');
+            loadingText.textContent = "문서에서 텍스트 추출 중...";
+
+            try {
+                // 1. Extract Text
+                if (!extractedText || extractedText.length < 10) {
+                    extractedText = await extractText();
+                }
+
+                if (!extractedText) throw new Error("텍스트를 추출할 수 없습니다.");
+
+                // 2. Call API
+                loadingText.textContent = "Gemini가 퀴즈를 생성하는 중...";
+                
+                const prompt = `
+                당신은 교육 전문가입니다. 아래 제공된 텍스트를 바탕으로 학습자를 위한 4지 선다형 퀴즈 5개를 만들어주세요.
+                
+                [제약 사항]
+                1. 결과는 반드시 순수한 JSON Array 형태여야 합니다. (Markdown backticks 없이)
+                2. 각 객체는 다음 키를 가져야 합니다: "question", "options" (4개의 문자열 리스트), "answer" (정답 문자열), "explanation" (해설).
+                3. 정답은 options 중 하나와 정확히 일치해야 합니다.
+                4. 언어는 한국어로 작성해주세요.
+
+                [텍스트 내용 (일부)]
+                ${extractedText.substring(0, 15000)}
+                `;
+
+                const newQuizzes = await callGemini(prompt);
+                quizzes = newQuizzes;
+                
+                renderQuizzes();
+                getEl('emptyState').classList.add('hidden');
+                getEl('quizContainer').classList.remove('hidden');
+                getEl('downloadBtn').classList.remove('hidden');
+
+            } catch (error) {
+                alert(error.message);
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        async function regenerateQuestion(index) {
+            const card = document.getElementById(`quiz-card-${index}`);
+            const originalContent = card.innerHTML;
+            
+            // Show loading state in card
+            card.innerHTML = `<div class="flex flex-col items-center justify-center py-10"><div class="loader mb-4"></div><p class="text-gray-500">새로운 문제 생성 중...</p></div>`;
+
+            try {
+                const prompt = `
+                아래 텍스트를 바탕으로 새로운 4지 선다형 퀴즈 1개를 만들어주세요.
+                이전과 겹치지 않는 창의적인 문제를 부탁합니다.
+                
+                형식은 다음 JSON Object 하나만 반환하세요 (Array 아님):
+                {
+                    "question": "문제 내용",
+                    "options": ["보기1", "보기2", "보기3", "보기4"],
+                    "answer": "정답",
+                    "explanation": "해설"
+                }
+                
+                [텍스트 내용]
+                ${extractedText.substring(0, 5000)}
+                `;
+
+                const newQuiz = await callGemini(prompt, false);
+                quizzes[index] = newQuiz;
+                renderQuizzes(); // Re-render all to keep consistency, or could just update one DOM element
+
+            } catch (error) {
+                alert(`재생성 실패: ${error.message}`);
+                card.innerHTML = originalContent; // Restore on fail
+                // Re-attach event listeners logic handled by simple onclicks in HTML string
+            }
+        }
+
+        function deleteQuestion(index) {
+            if(confirm("이 문제를 삭제하시겠습니까?")) {
+                quizzes.splice(index, 1);
+                renderQuizzes();
+            }
+        }
+
+        function renderQuizzes() {
+            const container = getEl('quizList');
+            getEl('quizCountBadge').textContent = `${quizzes.length} 문제`;
+            
+            container.innerHTML = quizzes.map((q, idx) => `
+                <div id="quiz-card-${idx}" class="quiz-card bg-white p-6 rounded-xl border border-gray-200">
+                    <div class="flex justify-between items-start mb-4">
+                        <h3 class="text-lg font-bold text-gray-900 flex-1 pr-4">Q${idx + 1}. ${q.question}</h3>
+                        <div class="flex gap-2">
+                            <button onclick="regenerateQuestion(${idx})" class="text-blue-500 hover:text-blue-700 p-1" title="재생성">
+                                🔄
+                            </button>
+                            <button onclick="deleteQuestion(${idx})" class="text-red-500 hover:text-red-700 p-1" title="삭제">
+                                🗑️
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="space-y-2 mb-4">
+                        ${q.options.map((opt, i) => `
+                            <div class="flex items-center p-3 rounded-lg border border-gray-100 bg-white hover:bg-gray-50">
+                                <span class="w-6 h-6 flex items-center justify-center rounded-full bg-gray-100 text-xs font-bold mr-3 text-gray-500">${i+1}</span>
+                                <span class="text-gray-700">${opt}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <details class="group">
+                        <summary class="flex cursor-pointer items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800 select-none">
+                            <span>💡 정답 및 해설 확인</span>
+                            <span class="transition group-open:rotate-180">▼</span>
+                        </summary>
+                        <div class="mt-3 rounded-lg bg-green-50 p-4 text-sm text-green-800 border border-green-100">
+                            <p class="font-bold mb-1">정답: ${q.answer}</p>
+                            <p>${q.explanation}</p>
+                        </div>
+                    </details>
+                </div>
+            `).join('');
+        }
+
+        function downloadCSV() {
+            if (quizzes.length === 0) return;
+
+            // BOM for Excel Korean support
+            const BOM = "\uFEFF";
+            let csvContent = BOM + "번호,문제,보기1,보기2,보기3,보기4,정답,해설\n";
+
+            quizzes.forEach((q, index) => {
+                // Escape quotes for CSV
+                const safe = (str) => `"${(str || '').toString().replace(/"/g, '""')}"`;
+                
+                const row = [
+                    index + 1,
+                    safe(q.question),
+                    safe(q.options[0]),
+                    safe(q.options[1]),
+                    safe(q.options[2]),
+                    safe(q.options[3]),
+                    safe(q.answer),
+                    safe(q.explanation)
+                ].join(",");
+                csvContent += row + "\n";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "generated_quiz.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
