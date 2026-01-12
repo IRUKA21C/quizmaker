@@ -174,9 +174,9 @@
             const key = getEl('apiKey').value.trim();
             if (!key) return alert("API 키를 입력해주세요.");
             
-            // Basic Validation
+            // Basic Validation Warning (Not blocking, just warning)
             if (!key.startsWith("AIza")) {
-                alert("⚠️ 주의: API 키 형식이 올바르지 않은 것 같습니다.\n(보통 'AIza'로 시작합니다. 올바른 AI Studio 키인지 확인해주세요.)");
+                alert("알림: 키 형식이 일반적이지 않습니다. 그래도 저장을 진행합니다.");
             }
 
             localStorage.setItem('gemini_api_key', key);
@@ -265,50 +265,57 @@
         }
 
         // ----------------------------------------------------------------
-        // Gemini API Logic (Fixed for JSON & Safety)
+        // Gemini API Logic (Multi-Model Fallback)
         // ----------------------------------------------------------------
         async function callGemini(prompt, isJsonArray = true) {
             const apiKey = getEl('apiKey').value.trim();
-            // Use gemini-1.5-flash as it supports responseMimeType
-            const model = 'gemini-1.5-flash'; 
+            
+            // Fallback strategy: Try latest models first, then stable/older ones.
+            const models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro'];
+            
+            let lastError = null;
 
-            try {
-                updateLoadingText(`AI(${model}) 분석 중...`, "잠시만 기다려주세요");
-                return await fetchGemini(model, apiKey, prompt, isJsonArray);
-            } catch (e) {
-                console.error("API Call Failed:", e);
-                // 404 Specific Handling
-                if (e.message.includes('404')) {
-                    throw new Error("API 키 오류: 'Google AI Studio' 키가 아닙니다.\n(Google Cloud Console 키는 여기서 작동하지 않습니다)");
+            for (const model of models) {
+                try {
+                    updateLoadingText(`AI 모델(${model}) 연결 중...`, "최적의 응답을 찾는 중입니다");
+                    // Pass isJsonArray to handle parsing correctly per model
+                    return await fetchGemini(model, apiKey, prompt, isJsonArray);
+                } catch (e) {
+                    console.warn(`Model ${model} failed:`, e);
+                    lastError = e;
+                    
+                    // If it's 404, it means model not found/access denied -> Try next.
+                    // If it's 5xx, server error -> Try next.
+                    // If it's 400 (Bad Request), it MIGHT be config issue, so try next (especially for 1.0-pro which doesn't support JSON mode).
                 }
-                throw e;
             }
+            
+            // If all failed
+            throw lastError;
         }
 
         async function fetchGemini(modelName, apiKey, prompt, isJsonArray) {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
             
-            // Force JSON response
-            const generationConfig = {
-                responseMimeType: "application/json"
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                safetySettings: [
+                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+                ]
             };
 
-            // Disable Safety Settings to prevent blocking educational content
-            const safetySettings = [
-                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-            ];
+            // Only use JSON mode for 1.5 models (1.0-pro doesn't support responseMimeType)
+            if (modelName.includes('1.5')) {
+                payload.generationConfig = { responseMimeType: "application/json" };
+            }
 
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: generationConfig,
-                    safetySettings: safetySettings
-                })
+                body: JSON.stringify(payload)
             });
 
             if (!response.ok) {
@@ -323,17 +330,29 @@
             const data = await response.json();
             
             if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-                throw new Error("AI가 응답을 거부했습니다. (내용 안전 정책 등)");
+                throw new Error("AI 응답이 비어있습니다.");
             }
 
             const text = data.candidates[0].content.parts[0].text;
             
-            // Since we forced JSON, we can parse directly usually, but let's be safe
+            // Parse logic
             try {
+                // 1. Try direct parse (for JSON mode)
                 return JSON.parse(text);
             } catch (e) {
-                console.error("JSON Parse Error:", text);
-                throw new Error("AI 응답이 올바른 JSON 형식이 아닙니다.");
+                // 2. Fallback for Markdown blocks (```json ... ```)
+                let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                try {
+                    return JSON.parse(clean);
+                } catch (e2) {
+                    // 3. Last resort: Find [ ... ] or { ... }
+                    const start = isJsonArray ? text.indexOf('[') : text.indexOf('{');
+                    const end = isJsonArray ? text.lastIndexOf(']') : text.lastIndexOf('}');
+                    if (start !== -1 && end !== -1) {
+                        return JSON.parse(text.substring(start, end + 1));
+                    }
+                    throw new Error("AI 응답을 JSON으로 변환하지 못했습니다.");
+                }
             }
         }
 
@@ -357,23 +376,23 @@
 
                 if (!extractedText) throw new Error("텍스트를 추출할 수 없습니다.");
 
-                updateLoadingText("퀴즈 생성 중...", "AI가 문제를 만들고 있습니다 (최대 30초)");
-                
-                // Prompt optimized for JSON mode
+                // Prompt optimized for all models
                 const prompt = `
-                당신은 교육 전문가입니다. 아래 텍스트를 바탕으로 4지 선다형 퀴즈 5개를 한국어로 만드세요.
+                Role: Education Expert.
+                Task: Create 5 multiple-choice questions (4 options each) in Korean based on the context.
                 
-                Output must be a JSON Array following this schema:
+                IMPORTANT OUTPUT FORMAT:
+                Return ONLY a raw JSON Array. Do not use Markdown code blocks.
                 [
                     {
-                        "question": "문제 텍스트",
+                        "question": "문제",
                         "options": ["보기1", "보기2", "보기3", "보기4"],
-                        "answer": "정답 (보기 중 하나와 정확히 일치)",
+                        "answer": "정답(보기와 동일)",
                         "explanation": "해설"
                     }
                 ]
 
-                [Context Text]
+                [Context]
                 ${extractedText.substring(0, 20000)}
                 `;
 
@@ -385,7 +404,7 @@
                 getEl('downloadBtn').classList.remove('hidden');
 
             } catch (error) {
-                alert(`오류 발생:\n${error.message}`);
+                alert(`오류 발생 (모든 모델 시도 실패):\n${error.message}`);
             } finally {
                 loading.classList.add('hidden');
             }
@@ -399,9 +418,10 @@
 
             try {
                 const prompt = `
-                아래 텍스트를 바탕으로 새로운 4지 선다형 퀴즈 1개를 한국어로 만드세요.
+                Create 1 multiple-choice question in Korean based on the context.
                 
-                Output must be a single JSON Object:
+                OUTPUT FORMAT:
+                Return ONLY a single raw JSON Object.
                 {
                     "question": "문제",
                     "options": ["보기1", "보기2", "보기3", "보기4"],
@@ -409,7 +429,7 @@
                     "explanation": "해설"
                 }
                 
-                [Context Text]
+                [Context]
                 ${extractedText.substring(0, 5000)}
                 `;
 
