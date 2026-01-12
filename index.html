@@ -44,21 +44,6 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
-        
-        /* Custom scrollbar */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #f1f1f1; 
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #c1c1c1; 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #a8a8a8; 
-        }
     </style>
 </head>
 <body class="text-gray-800 h-screen flex flex-col md:flex-row overflow-hidden">
@@ -72,30 +57,26 @@
 
         <div class="space-y-6">
             <!-- API Key Input Section -->
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
-                <div class="flex gap-2 mb-2">
-                    <input type="password" id="apiKey" placeholder="AIza..." 
-                        class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm">
-                    <button onclick="testApiKey()" class="whitespace-nowrap bg-blue-100 text-blue-600 px-3 py-2 rounded-lg text-xs font-bold hover:bg-blue-200 transition-colors">
-                        테스트
-                    </button>
-                </div>
+            <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                <label class="block text-sm font-bold text-gray-700 mb-2">Gemini API Key</label>
                 
-                <!-- Save/Delete Buttons -->
+                <input type="password" id="apiKey" placeholder="AIza... (여기에 붙여넣기)" 
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all text-sm mb-2 bg-white">
+                
                 <div class="flex gap-2">
-                    <button onclick="saveApiKey()" class="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs py-2 rounded-lg transition-colors border border-gray-300 font-medium">
+                    <button onclick="saveApiKey()" class="flex-1 bg-blue-600 text-white text-xs py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm">
                         💾 키 저장
                     </button>
-                    <button onclick="deleteApiKey()" class="flex-1 bg-gray-100 hover:bg-red-50 text-red-500 text-xs py-2 rounded-lg transition-colors border border-gray-300 font-medium">
-                        🗑️ 키 삭제
+                    <button onclick="deleteApiKey()" class="flex-1 bg-white text-red-500 border border-red-200 text-xs py-2 rounded-lg font-bold hover:bg-red-50 transition-colors">
+                        🗑️ 삭제
                     </button>
                 </div>
                 
-                <p id="keyStatusMsg" class="text-xs mt-2 h-4 font-bold text-blue-500"></p>
-                <p class="text-xs text-gray-400 mt-1 leading-relaxed">
-                    * <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-blue-500 underline hover:text-blue-700">Google AI Studio Key</a> 필수<br>
-                    (Vertex AI 키 불가)
+                <p id="keyStatusMsg" class="text-xs mt-2 font-bold h-4"></p>
+                
+                <p class="text-xs text-gray-400 mt-2 leading-relaxed">
+                    * <a href="https://aistudio.google.com/app/apikey" target="_blank" class="text-blue-600 underline font-bold">Google AI Studio</a> 키 필수<br>
+                    (⚠️ Cloud Vertex AI 키 작동 불가)
                 </p>
             </div>
 
@@ -137,7 +118,10 @@
         <!-- Welcome Message / Empty State -->
         <div id="emptyState" class="h-full flex flex-col items-center justify-center text-gray-400">
             <div class="text-6xl mb-4">👋</div>
-            <p class="text-lg text-center">좌측에서 <b>API Key</b>를 입력하고<br>파일을 업로드하여 퀴즈를 생성해보세요.</p>
+            <p class="text-lg text-center">
+                왼쪽 파란 상자에 <b>API Key</b>를 저장하고<br>
+                파일을 올려주세요.
+            </p>
         </div>
 
         <!-- Loading Indicator -->
@@ -170,10 +154,10 @@
 
         // UI Helpers
         const getEl = (id) => document.getElementById(id);
-        const setStatus = (msg, color = "text-blue-500") => {
+        const setStatus = (msg, color = "text-blue-600") => {
             const el = getEl('keyStatusMsg');
             el.textContent = msg;
-            el.className = `text-xs mt-2 h-4 font-bold ${color}`;
+            el.className = `text-xs mt-2 font-bold h-4 ${color}`;
         };
 
         // --- API Key Management ---
@@ -181,20 +165,23 @@
             const savedKey = localStorage.getItem('gemini_api_key');
             if (savedKey) {
                 getEl('apiKey').value = savedKey;
-                setStatus("저장된 키를 불러왔습니다.", "text-green-600");
-                setTimeout(() => {
-                    setStatus("");
-                    checkReady();
-                }, 1500);
+                setStatus("✅ 저장된 키 로드 완료", "text-green-600");
+                checkReady();
             }
         };
 
         function saveApiKey() {
             const key = getEl('apiKey').value.trim();
             if (!key) return alert("API 키를 입력해주세요.");
+            
+            // Basic Validation
+            if (!key.startsWith("AIza")) {
+                alert("⚠️ 주의: API 키 형식이 올바르지 않은 것 같습니다.\n(보통 'AIza'로 시작합니다. 올바른 AI Studio 키인지 확인해주세요.)");
+            }
+
             localStorage.setItem('gemini_api_key', key);
-            setStatus("키가 저장되었습니다!", "text-green-600");
-            setTimeout(() => setStatus(""), 2000);
+            setStatus("💾 브라우저에 키 저장됨!", "text-blue-600");
+            setTimeout(() => setStatus(""), 3000);
             checkReady();
         }
 
@@ -202,24 +189,8 @@
             localStorage.removeItem('gemini_api_key');
             getEl('apiKey').value = "";
             checkReady();
-            setStatus("키가 삭제되었습니다.", "text-red-500");
-            setTimeout(() => setStatus(""), 2000);
-        }
-
-        async function testApiKey() {
-            const key = getEl('apiKey').value.trim();
-            if (!key) return alert("API 키를 입력해주세요.");
-            
-            setStatus("키 확인 중...", "text-blue-500");
-            try {
-                // Simple call to check if key works (using a tiny prompt)
-                await fetchGemini('gemini-1.5-flash', key, "Hi", false); // false = expect plain text/object, not array
-                setStatus("✅ 유효한 API 키입니다!", "text-green-600");
-            } catch (e) {
-                console.error(e);
-                setStatus("❌ 유효하지 않은 키입니다.", "text-red-500");
-                alert("API 키 테스트 실패:\n" + e.message);
-            }
+            setStatus("🗑️ 키 삭제됨", "text-red-500");
+            setTimeout(() => setStatus(""), 3000);
         }
 
         function handleFileSelect(event) {
@@ -294,35 +265,50 @@
         }
 
         // ----------------------------------------------------------------
-        // Gemini API Logic (Robust Parsing)
+        // Gemini API Logic (Fixed for JSON & Safety)
         // ----------------------------------------------------------------
         async function callGemini(prompt, isJsonArray = true) {
             const apiKey = getEl('apiKey').value.trim();
-            const models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro'];
-            
-            let lastError = null;
+            // Use gemini-1.5-flash as it supports responseMimeType
+            const model = 'gemini-1.5-flash'; 
 
-            for (const model of models) {
-                try {
-                    updateLoadingText(`AI 모델(${model}) 호출 중...`, "잠시만 기다려주세요");
-                    return await fetchGemini(model, apiKey, prompt, isJsonArray);
-                } catch (e) {
-                    console.warn(`${model} failed:`, e);
-                    lastError = e;
-                    // If auth error or not found, try next model. If bad request, stop.
-                    if (e.message.includes('400')) throw e; 
+            try {
+                updateLoadingText(`AI(${model}) 분석 중...`, "잠시만 기다려주세요");
+                return await fetchGemini(model, apiKey, prompt, isJsonArray);
+            } catch (e) {
+                console.error("API Call Failed:", e);
+                // 404 Specific Handling
+                if (e.message.includes('404')) {
+                    throw new Error("API 키 오류: 'Google AI Studio' 키가 아닙니다.\n(Google Cloud Console 키는 여기서 작동하지 않습니다)");
                 }
+                throw e;
             }
-            throw lastError;
         }
 
         async function fetchGemini(modelName, apiKey, prompt, isJsonArray) {
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
             
+            // Force JSON response
+            const generationConfig = {
+                responseMimeType: "application/json"
+            };
+
+            // Disable Safety Settings to prevent blocking educational content
+            const safetySettings = [
+                { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+                { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+            ];
+
             const response = await fetch(url, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                body: JSON.stringify({ 
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: generationConfig,
+                    safetySettings: safetySettings
+                })
             });
 
             if (!response.ok) {
@@ -335,35 +321,20 @@
             }
 
             const data = await response.json();
-            if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
-                throw new Error("AI 응답이 비어있습니다. (안전 필터 등)");
+            
+            if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+                throw new Error("AI가 응답을 거부했습니다. (내용 안전 정책 등)");
             }
 
             const text = data.candidates[0].content.parts[0].text;
-            return parseGeminiResponse(text, isJsonArray);
-        }
-
-        function parseGeminiResponse(text, isArray) {
-            // 1. Try direct parse
-            try { return JSON.parse(text); } catch(e) {}
-
-            // 2. Try removing markdown code blocks
-            let clean = text.replace(/```json/g, '').replace(/```/g, '').trim();
-            try { return JSON.parse(clean); } catch(e) {}
-
-            // 3. Try finding [ ... ] or { ... }
-            const startChar = isArray ? '[' : '{';
-            const endChar = isArray ? ']' : '}';
-            const startIdx = text.indexOf(startChar);
-            const endIdx = text.lastIndexOf(endChar);
-
-            if (startIdx !== -1 && endIdx !== -1) {
-                const substring = text.substring(startIdx, endIdx + 1);
-                try { return JSON.parse(substring); } catch(e) {}
+            
+            // Since we forced JSON, we can parse directly usually, but let's be safe
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                console.error("JSON Parse Error:", text);
+                throw new Error("AI 응답이 올바른 JSON 형식이 아닙니다.");
             }
-
-            console.error("Failed text:", text);
-            throw new Error("AI 응답을 JSON으로 변환하지 못했습니다.");
         }
 
         // ----------------------------------------------------------------
@@ -388,22 +359,22 @@
 
                 updateLoadingText("퀴즈 생성 중...", "AI가 문제를 만들고 있습니다 (최대 30초)");
                 
+                // Prompt optimized for JSON mode
                 const prompt = `
                 당신은 교육 전문가입니다. 아래 텍스트를 바탕으로 4지 선다형 퀴즈 5개를 한국어로 만드세요.
                 
-                [중요: 출력 형식]
-                반드시 아래 JSON 배열 형식만 출력하세요. 마크다운이나 다른 설명은 절대 포함하지 마세요.
+                Output must be a JSON Array following this schema:
                 [
                     {
-                        "question": "문제",
+                        "question": "문제 텍스트",
                         "options": ["보기1", "보기2", "보기3", "보기4"],
-                        "answer": "정답 (보기 중 하나와 똑같이)",
+                        "answer": "정답 (보기 중 하나와 정확히 일치)",
                         "explanation": "해설"
                     }
                 ]
 
-                [텍스트 내용]
-                ${extractedText.substring(0, 15000)}
+                [Context Text]
+                ${extractedText.substring(0, 20000)}
                 `;
 
                 quizzes = await callGemini(prompt, true);
@@ -430,8 +401,7 @@
                 const prompt = `
                 아래 텍스트를 바탕으로 새로운 4지 선다형 퀴즈 1개를 한국어로 만드세요.
                 
-                [중요: 출력 형식]
-                반드시 아래 JSON 객체 하나만 출력하세요. 배열([]) 금지. 설명 금지.
+                Output must be a single JSON Object:
                 {
                     "question": "문제",
                     "options": ["보기1", "보기2", "보기3", "보기4"],
@@ -439,7 +409,7 @@
                     "explanation": "해설"
                 }
                 
-                [텍스트 내용]
+                [Context Text]
                 ${extractedText.substring(0, 5000)}
                 `;
 
